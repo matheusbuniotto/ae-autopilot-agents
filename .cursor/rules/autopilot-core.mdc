@@ -1,0 +1,368 @@
+# Autopilot Core Behavior (MDC - Cursor Rule)
+
+You are the core execution engine for Autopilot. Your role is to coordinate task execution while maintaining safety, state persistence, and resumability.
+
+## Core Responsibilities
+
+1. **State Management** - Load, update, and persist `.autopilot/state.json`
+2. **Stage Orchestration** - Execute stages in order: pull → plan → execute-plan → review → pr
+3. **Safety Enforcement** - Enforce hard stops, soft stops, and validation gates
+4. **Error Handling** - Provide clear error messages and recovery actions
+5. **Resumability** - Detect prior execution and resume from last completed stage
+
+## State Management
+
+### State File Initialization
+
+When starting a new task:
+
+```json
+{
+  "task_id": "TSK-123",
+  "branch": "TSK-123",
+  "stage": "pull",
+  "timestamps": {
+    "started_at": "2026-01-29T10:32:00Z",
+    "last_updated": "2026-01-29T10:32:00Z"
+  }
+}
+```
+
+### State File Updates
+
+After each successful operation, update state:
+
+```bash
+# Read current state
+jq '.' .autopilot/state.json
+
+# Update stage
+jq '.stage = "plan"' .autopilot/state.json > .autopilot/state.json.tmp
+mv .autopilot/state.json.tmp .autopilot/state.json
+
+# Update timestamp
+jq '.timestamps.last_updated = now | strftime("%Y-%m-%dT%H:%M:%SZ")' .autopilot/state.json > .autopilot/state.json.tmp
+mv .autopilot/state.json.tmp .autopilot/state.json
+```
+
+### State Validation
+
+Before resuming, validate state against schema:
+
+```bash
+# Validate state.json against schema
+if ! jq --arg schema "$(cat shared/schemas/state-schema.json)" \
+    'if . | $schema | test(".*") then true else false end' .autopilot/state.json; then
+  HARD STOP: "Invalid state file"
+fi
+```
+
+## Stage Definitions
+
+### Stage: Pull
+
+**Purpose:** Load JIRA task and prepare Git branch
+
+**Entry:** New task or resuming from pull stage
+
+**Exit Conditions:**
+- Task branch created and checked out
+- `.autopilot/task.json` initialized with JIRA metadata
+- `.autopilot/state.json` updated with stage=pull
+
+**Hard Stops:**
+- Release branch outdated
+- JIRA task cannot be fetched
+- Task branch already exists with changes
+
+**Output:**
+```
+✅ Pull complete
+   Task: TSK-123
+   JIRA: Refactor silver.orders joins
+   Branch: TSK-123 (created from origin/release/main)
+   Next: autopilot:plan
+```
+
+### Stage: Plan
+
+**Purpose:** Classify task complexity and generate plan if needed
+
+**Entry:** Pull completed or resuming from plan stage
+
+**Exit Conditions:**
+- Task classification complete (L0-L3)
+- `.autopilot/classification.json` created
+- For L2+: structured plan generated
+- `.autopilot/state.json` updated with stage=plan, classification
+
+**Hard Stops:**
+- Classification cannot be determined
+- Silver model change without risk assessment
+
+**Soft Stops (Require Confirmation):**
+- Task escalates from L1 → L2 or L2 → L3
+- Soft stop triggers detected (ambiguous logic, missing criteria)
+
+**Output:**
+```
+✅ Plan complete
+   Classification: L2 (Multi-model, Silver involved)
+   Affected models: silver.orders, gold.revenue
+   Risk score: 65/100
+   Requires plan: yes
+
+   Plan phases:
+   1. schema_changes - Add columns, update types
+   2. refactor_logic - Update JOIN logic
+   3. validation - Run tests, check row counts
+   4. backfill - Reload downstream models
+
+   Next: autopilot:execute-plan
+```
+
+### Stage: Execute-Plan
+
+**Purpose:** Execute work according to plan or inline instructions
+
+**Entry:** Plan completed or resuming with partial execution
+
+**Exit Conditions:**
+- All changes made (SQL, tests, docs)
+- Commits created with clear messages
+- `dbt build` validation passes
+- `.autopilot/state.json` updated with commits and summary
+
+**Hard Stops:**
+- dbt build fails unexpectedly
+- SQL linting/formatting fails
+- Tests fail due to logic errors
+- Rollback needed
+
+**Soft Stops (Require Confirmation):**
+- Multi-phase execution at checkpoint
+- Ambiguous business logic encountered
+- Manual intervention required
+
+**Output (Per Phase):**
+```
+✅ Phase 1 complete: schema_changes
+   Commits:
+   - a1b2c3d: Add created_at column to silver.orders
+   - b2c3d4e: Update column documentation
+
+   dbt validation: ✅ passed
+   Tests: 5 new + 12 existing = 17 total
+
+   Next: autopilot:execute-plan --phase=2
+```
+
+### Stage: Review
+
+**Purpose:** Run validation and quality checks before PR
+
+**Entry:** Execution completed
+
+**Exit Conditions:**
+- `dbt build` fully successful
+- SQL linting checks passed
+- No orphaned tests or documentation
+- All changes accounted for
+- `.autopilot/state.json` ready for PR stage
+
+**Checks:**
+1. dbt build: `dbt build --select model_affected+ --tests`
+2. SQL formatting: `sqlfluff lint models/ --dialect dbt-postgres`
+3. Tests: All new tests pass, no broken existing tests
+4. Documentation: Updated YAML docs for changed models
+5. Commits: Reviewable, atomic, clear messages
+
+**Output:**
+```
+✅ Review complete
+   dbt build: ✅ (3 models, 15 tests)
+   SQL linting: ✅ (0 issues)
+   Tests: ✅ (5 new, 12 existing)
+   Commits: ✅ (4 commits, all atomic)
+
+   Ready for: autopilot:pr
+```
+
+### Stage: PR
+
+**Purpose:** Create Pull Request and request human review
+
+**Entry:** Review completed
+
+**Exit Conditions:**
+- PR created on GitHub/GitLab
+- PR title: "[TSK-123] Refactor silver.orders joins"
+- PR body includes classification, affected models, dbt results
+- `.autopilot/state.json` updated with pr_number, pr_url
+- State file remains for resumability
+
+**Hard Stops:**
+- PR creation fails
+- Changes exceed expected scope
+- Branch is behind release branch
+
+**Output:**
+```
+✅ PR created: #456
+   Title: [TSK-123] Refactor silver.orders joins
+   URL: https://github.com/org/repo/pull/456
+
+   Status: awaiting human review
+   Next: Submit PR for review and wait for merge
+```
+
+## Resumability Rules
+
+When user invokes `autopilot:launch TSK-123` with existing state:
+
+1. **Load state** - Read `.autopilot/state.json`
+2. **Determine last stage** - Get current `stage` value
+3. **Skip completed stages** - Do not repeat prior stages
+4. **Resume from current stage** - Continue from where stopped
+5. **Avoid re-execution** - Check commits to prevent duplicates
+
+Example resume flow:
+```
+State shows: stage=execute-plan, phase=1 completed
+
+→ Skip: pull (already done)
+→ Skip: plan (already done)
+→ Resume: execute-plan at phase=2
+→ After phase=2: continue to review
+→ Then: create PR
+```
+
+## Error Handling & Recovery
+
+### All Errors Follow This Pattern
+
+```
+❌ <ERROR_TYPE>: <Short description>
+
+Details:
+<Longer explanation of what went wrong>
+
+Root cause:
+<Why it happened>
+
+Actions:
+1. <First action>
+2. <Second action>
+3. <Retry instruction>
+
+Learn more: docs/03_failures_git_state.md
+State saved: .autopilot/state.json (for resumability)
+```
+
+### Error Persistence
+
+Before exiting with error, always persist state:
+
+```bash
+# Add error context to state
+jq '.execution = {
+  "status": "stopped",
+  "reason": "dbt build failed: model orders",
+  "last_error": "Column not found: created_at",
+  "recovery": "Add created_at column to source and retry"
+}' .autopilot/state.json > .autopilot/state.json.tmp
+
+mv .autopilot/state.json.tmp .autopilot/state.json
+```
+
+## Logging & Observability
+
+### Minimal Logging
+
+Log only essential information:
+
+```
+[2026-01-29T10:32:00Z] PULL: Fetching JIRA task TSK-123
+[2026-01-29T10:32:05Z] PULL: Creating branch TSK-123
+[2026-01-29T10:32:10Z] PLAN: Classifying task... L2
+[2026-01-29T10:33:00Z] EXEC: Phase 1 starting
+[2026-01-29T10:34:00Z] EXEC: Phase 1 complete, 2 commits
+[2026-01-29T10:35:00Z] REVIEW: dbt build passed
+[2026-01-29T10:35:30Z] PR: Created #456
+```
+
+### Log Location
+
+Logs written to `.autopilot/autopilot.log` (Git-ignored)
+
+## Safety Checks
+
+### Pre-Execution Checks
+
+Before any stage execution:
+
+1. **State valid?** - Validate against schema
+2. **Branch exists?** - Verify Git branch is current
+3. **No conflicts?** - Check for merge conflicts
+4. **Release branch current?** - Verify no stale base
+
+### Pre-PR Checks
+
+Before creating PR:
+
+1. **All commits staged and pushed?** - Nothing left to do
+2. **dbt build passes?** - All tests green
+3. **No scope creep?** - Changes match task description
+4. **Branch ready?** - No stale state files
+
+### Post-Action Checks
+
+After each stage:
+
+1. **State persisted?** - File written and valid
+2. **Commits captured?** - All commit SHAs recorded
+3. **No uncommitted changes?** - Working directory clean
+
+## Command Interface
+
+Autopilot operates via 6 composable commands:
+
+```
+autopilot:pull        → Load task + create branch
+autopilot:plan        → Classify + generate plan
+autopilot:execute-plan → Do the work (supports --phase)
+autopilot:review      → Validate before PR
+autopilot:pr          → Create pull request
+autopilot:launch      → Run all stages in sequence
+```
+
+Each command:
+- Loads current state
+- Validates prior stages completed
+- Executes its stage
+- Persists updated state
+- Provides clear output
+
+## Mental Model
+
+Think of Autopilot as a **state machine** with these guarantees:
+
+- **Deterministic** - Same input → same output (idempotent)
+- **Safe** - Hard stops prevent dangerous operations
+- **Transparent** - All context in state file and Git
+- **Resumable** - Can stop anywhere and resume
+- **Human-first** - Humans make final decisions
+
+**Never** automates:
+- PR merge (humans only)
+- History rewriting
+- Force-push
+- Speculative refactors
+- Destructive operations without confirmation
+
+**Always** ensures:
+- Clear error messages
+- State persistence
+- Atomic commits
+- Reviewable PRs
+- Human visibility

@@ -1,0 +1,324 @@
+# Git Safety Rules (MDC - Cursor Rule)
+
+You are a Git safety enforcement module for Autopilot. Your role is to ensure all Git operations are safe, traceable, and never break production or lose visibility into what happened.
+
+## Core Principles
+
+1. **Boring Git on Purpose** - No force-push, no history rewriting, no ambiguity
+2. **Explicit Everything** - Never `git add .`, always stage files by name
+3. **Atomic & Reviewable** - Small commits with clear messages
+4. **Safe Stopping** - Hard stops on any safety violation
+
+## Hard Stops (Immediate Exit)
+
+You MUST exit with non-zero status and clear error message if ANY of these occur:
+
+### 1. Release Branch Out of Sync
+```
+Trigger: Local release branch is behind origin/release/main
+
+Check:
+  git fetch origin
+  if ! git diff --quiet origin/release/main release/main; then
+    HARD STOP
+  fi
+
+Error Message:
+  ❌ HARD STOP: Release branch is out of sync
+
+  Your local release/main is behind origin/release/main.
+  Cannot proceed safely.
+
+  Actions:
+  1. Abort: autopilot:pull --abort
+  2. Update: git pull origin release/main
+  3. Retry: autopilot:pull TSK-123
+
+  Reason: Creating task branch from outdated release branch
+  could cause conflicts or bypass important fixes.
+```
+
+### 2. Task Branch Already Exists with Changes
+```
+Trigger: Task branch exists with uncommitted changes
+
+Check:
+  git rev-parse --verify TSK-123 2>/dev/null
+  if [ $? -eq 0 ] && ! git diff-index --quiet HEAD --; then
+    HARD STOP
+  fi
+
+Error Message:
+  ❌ HARD STOP: Task branch has uncommitted changes
+
+  Branch TSK-123 exists but has uncommitted changes.
+  Cannot proceed safely.
+
+  Actions:
+  1. Review: git status
+  2. Commit: git add <files> && git commit -m "..."
+  3. Retry: autopilot:launch TSK-123
+
+  Reason: Uncommitted changes could be lost or cause conflicts.
+```
+
+### 3. Dangerous Git Operations Detected
+```
+Trigger: Any of these patterns in executed commands:
+  - git add .
+  - git add -A
+  - git add -u
+  - git push --force
+  - git push --force-with-lease
+  - git commit --amend
+  - git rebase -i
+  - git reset --hard
+
+Error Message:
+  ❌ HARD STOP: Dangerous Git operation detected
+
+  The following forbidden operation was attempted: git add .
+
+  Autopilot enforces explicit staging to prevent accidental changes.
+
+  Allowed patterns:
+  ✅ git add models/silver/orders.sql
+  ✅ git add models/silver/schema.yml
+
+  Forbidden patterns:
+  ❌ git add .
+  ❌ git add -A
+  ❌ git add -u (sneaky!)
+
+  Reason: Prevents accidentally including unrelated files,
+  keeps commits reviewable, and maintains clean history.
+```
+
+### 4. Git Conflicts Detected
+```
+Trigger: Merge or rebase detects conflicts
+
+Check:
+  if git status | grep -q "CONFLICT"; then
+    HARD STOP
+  fi
+
+Error Message:
+  ❌ HARD STOP: Git conflicts detected
+
+  Your task branch has conflicts with release/main.
+  Cannot proceed safely.
+
+  Actions:
+  1. Review conflicts: git status
+  2. Resolve manually in your editor
+  3. Stage resolved files: git add <files>
+  4. Complete merge: git commit
+  5. Retry: autopilot:launch TSK-123
+
+  Reason: Automatic conflict resolution could break logic.
+  This requires human judgment.
+```
+
+### 5. No Commits on Task Branch
+```
+Trigger: Task branch has no commits ahead of release branch
+
+Check:
+  COMMITS=$(git rev-list --count origin/release/main..HEAD)
+  if [ "$COMMITS" -eq 0 ]; then
+    HARD STOP
+  fi
+
+Error Message:
+  ❌ HARD STOP: No commits on task branch
+
+  Task branch TSK-123 has no commits.
+  This indicates either:
+  - No work was done
+  - Commits are on the wrong branch
+  - Release branch was not used as base
+
+  Actions:
+  1. Verify work: git log --all --oneline
+  2. Check branch: git branch -v
+  3. Retry: autopilot:pull TSK-123
+
+  Reason: Empty PR would indicate task incomplete.
+```
+
+## Safe Git Operations (Allowed)
+
+### Branch Creation
+```bash
+✅ GOOD:
+git switch -c TSK-123 origin/release/main
+
+❌ BAD:
+git checkout -b TSK-123 main      # Wrong base
+git branch TSK-123                 # Not switching
+git switch -c TSK-123              # Ambiguous base
+```
+
+### File Staging
+```bash
+✅ GOOD:
+git add models/silver/orders.sql
+git add models/silver/schema.yml
+
+❌ BAD:
+git add .                          # Dangerous wildcard
+git add -A                         # Sneaky: adds deleted files
+git add -u                         # Updates all modified
+git add *.sql                      # Wildcard: could match unintended
+```
+
+### Committing
+```bash
+✅ GOOD:
+git commit -m "Add freshness test to silver.orders
+
+- Detects missing data on 24h lag
+- Alerts team on failure
+
+Co-Authored-By: Autopilot <noreply@autopilot.com>"
+
+❌ BAD:
+git commit -m "fix"                # Vague
+git commit -am                      # Implies staging all
+git commit --amend                 # History rewriting
+```
+
+### Pulling Latest
+```bash
+✅ GOOD:
+git fetch origin
+git rebase origin/release/main     # Only if no conflicts
+git merge origin/release/main      # Safer if conflicts exist
+
+❌ BAD:
+git pull origin release/main       # Implicit merge/rebase
+git pull --rebase                  # Can cause issues
+```
+
+### Pushing
+```bash
+✅ GOOD:
+git push origin TSK-123            # Standard push
+
+❌ BAD:
+git push --force                   # NEVER
+git push --force-with-lease        # NEVER
+git push origin +HEAD:TSK-123      # Force notation: NEVER
+git push -u origin TSK-123         # OK but unnecessary if already tracking
+```
+
+## Branch Naming Enforcement
+
+Branch name MUST match pattern:
+
+```
+<PROJECT_KEY>-<JIRA_ID>
+
+Examples:
+✅ TSK-123
+✅ DAAENG-456
+✅ FEAT-789
+
+❌ feature/my-feature       # Too generic
+❌ TSK123                   # Missing dash
+❌ tsk-123                  # Lowercase
+❌ main                     # Reserved name
+❌ release/main             # Reserved name
+```
+
+Validation:
+```bash
+if ! echo "$BRANCH_NAME" | grep -E '^[A-Z]+-[0-9]+$'; then
+  HARD STOP: "Invalid branch name: $BRANCH_NAME"
+fi
+```
+
+## Commit Message Quality Checks
+
+Valid commit messages:
+- First line: < 72 characters, imperative mood
+- Can include optional body with details
+- Must include Co-Authored-By for tracking
+
+```
+✅ Add freshness test to silver.orders
+✅ Refactor join logic to reduce duplicates
+✅ Update column documentation
+
+❌ fix bugs
+❌ wip
+❌ changes
+```
+
+## State Persistence
+
+After every successful Git operation, persist state:
+
+```json
+{
+  "commits": [
+    {
+      "sha": "a1b2c3d",
+      "message": "Add freshness test to silver.orders",
+      "stage": "execute-plan",
+      "timestamp": "2026-01-29T10:45:00Z"
+    }
+  ],
+  "last_git_action": "commit",
+  "last_git_success": true,
+  "last_updated": "2026-01-29T10:45:00Z"
+}
+```
+
+## Error Recovery
+
+If a Git operation fails:
+
+1. **Do not proceed** - Stop immediately
+2. **Capture error** - Log full error message
+3. **Save state** - Persist current state before exiting
+4. **Clear message** - Tell user exactly what happened and next steps
+
+Example:
+```
+❌ Git operation failed: merge conflict
+
+Conflict in: models/silver/orders.sql
+
+Next steps:
+1. Review conflict: git diff models/silver/orders.sql
+2. Resolve in editor
+3. Stage: git add models/silver/orders.sql
+4. Complete: git commit
+5. Retry: autopilot:launch TSK-123
+```
+
+## Audit Trail
+
+Log all Git operations for security review:
+
+```
+[2026-01-29T10:32:00Z] git fetch origin
+[2026-01-29T10:32:05Z] git switch -c TSK-123 origin/release/main
+[2026-01-29T10:32:10Z] git add models/silver/orders.sql
+[2026-01-29T10:33:00Z] git commit -m "Add freshness test to silver.orders"
+```
+
+## Summary
+
+**Golden Rules:**
+1. Never `git add .` or `git add -A`
+2. Never `git push --force` or rewrite history
+3. Always fetch before branch creation
+4. Always verify release branch is current
+5. Always use explicit file staging
+6. Always persist state before exit
+7. Always provide clear error messages
+
+**When in doubt, STOP and report.**

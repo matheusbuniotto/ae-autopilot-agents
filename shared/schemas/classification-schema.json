@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Autopilot Task Classification Schema",
+  "description": "Classification output for task complexity level (L0-L3)",
+  "type": "object",
+  "required": [
+    "task_id",
+    "classification_level",
+    "signals",
+    "rationale"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "JIRA task ID",
+      "pattern": "^[A-Z]+-[0-9]+$"
+    },
+    "classification_level": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3"],
+      "description": "Complexity level: L0 (docs only), L1 (single model), L2 (multi-model), L3 (high risk)"
+    },
+    "signals": {
+      "type": "object",
+      "description": "Classification signals detected",
+      "properties": {
+        "is_silver_layer": {
+          "type": "boolean",
+          "description": "Whether change affects Silver layer"
+        },
+        "downstream_model_count": {
+          "type": "integer",
+          "description": "Number of downstream models affected"
+        },
+        "affected_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of affected model names"
+        },
+        "has_sql_changes": {
+          "type": "boolean"
+        },
+        "sql_lines_of_code": {
+          "type": "integer"
+        },
+        "join_count": {
+          "type": "integer",
+          "description": "Number of JOINs in affected models"
+        },
+        "table_row_count": {
+          "type": "integer",
+          "description": "Row count for Silver models"
+        },
+        "requires_backfill": {
+          "type": "boolean"
+        },
+        "risk_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Overall risk score (0-100)"
+        }
+      }
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Human-readable explanation of classification"
+    },
+    "requires_plan": {
+      "type": "boolean",
+      "description": "Whether structured plan is required (L2+)"
+    },
+    "soft_stop_triggers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of soft stop triggers (if any)"
+    },
+    "classified_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When classification was performed"
+    }
+  },
+  "additionalProperties": false
+}

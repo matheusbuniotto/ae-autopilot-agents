@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Autopilot Task Metadata Schema",
+  "description": "JIRA task metadata pulled and cached locally",
+  "type": "object",
+  "required": [
+    "id",
+    "key",
+    "summary",
+    "description"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "JIRA issue ID (numeric)"
+    },
+    "key": {
+      "type": "string",
+      "description": "JIRA issue key (e.g., TSK-123)",
+      "pattern": "^[A-Z]+-[0-9]+$"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Issue title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Issue description"
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "JIRA labels (e.g., dbt, silver, risky)"
+    },
+    "status": {
+      "type": "string",
+      "description": "Current JIRA status (e.g., In Progress, Done)"
+    },
+    "assignee": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Acceptance criteria from issue"
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this metadata was fetched from JIRA"
+    }
+  },
+  "additionalProperties": false
+}

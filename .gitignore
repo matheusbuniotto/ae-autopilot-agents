@@ -1,0 +1,36 @@
+# Autopilot runtime state (Git-ignored for safety)
+.autopilot/
+!.autopilot/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+*.npm
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# dbt artifacts (generated, not committed)
+target/
+dbt_packages/
+
+# OS
+.DS_Store
+Thumbs.db

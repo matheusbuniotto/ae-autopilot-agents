@@ -1,0 +1,133 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Autopilot State Schema",
+  "description": "Persistent execution state for Autopilot task resumability and memory",
+  "type": "object",
+  "required": [
+    "task_id",
+    "branch",
+    "stage",
+    "timestamps"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "JIRA task ID (e.g., TSK-123)",
+      "pattern": "^[A-Z]+-[0-9]+$"
+    },
+    "branch": {
+      "type": "string",
+      "description": "Git branch name (must match task_id)",
+      "pattern": "^[A-Z]+-[0-9]+$"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["pull", "plan", "execute-plan", "review", "pr"],
+      "description": "Current execution stage"
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3"],
+      "description": "Task complexity classification"
+    },
+    "plan": {
+      "type": "object",
+      "description": "Plan structure and progress",
+      "properties": {
+        "exists": {
+          "type": "boolean"
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of planned phases"
+        },
+        "completed_phases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Phases that have been completed"
+        }
+      }
+    },
+    "commits": {
+      "type": "array",
+      "description": "Commit history (references only)",
+      "items": {
+        "type": "object",
+        "required": ["sha", "message", "timestamp"],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "description": "Git commit SHA (short form)"
+          },
+          "message": {
+            "type": "string",
+            "description": "Commit message"
+          },
+          "stage": {
+            "type": "string",
+            "description": "Stage during which commit was made"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when commit was made"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "description": "High-level summary of work done",
+      "properties": {
+        "what_was_done": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of actions taken"
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "description": "Current execution state",
+      "properties": {
+        "last_command": {
+          "type": "string",
+          "description": "Last command executed"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["running", "stopped", "completed", "failed"],
+          "description": "Execution status"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for stop/failure if applicable"
+        }
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "required": ["started_at"],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When execution started"
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When state was last updated"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
