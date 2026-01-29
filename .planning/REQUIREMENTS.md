@@ -31,12 +31,12 @@ Requirements for initial release. Focus: Execution Engine, Git & PR Workflow, St
 - [ ] **STATE-02**: Autopilot tracks all commits and "what was done" for debugging and handoff context
 - [ ] **STATE-03**: Autopilot stops safely on errors; no silent failures or scope creep
 
-### User Interface & Commands
+### User Interface & Agents/Skills
 
-- [ ] **CLI-01**: Autopilot provides composable commands: `pull`, `plan`, `execute-plan`, `review`, `pr`
-- [ ] **CLI-02**: Autopilot provides unified `launch` command that runs full workflow (pull → plan → execute-plan → review → pr)
-- [ ] **CLI-03**: Autopilot supports phase-by-phase execution for L3 tasks with `execute-plan --phase=N`
-- [ ] **CLI-04**: Autopilot supports `--dry-run`, `--stop-after`, `--no-pr` flags for flexibility
+- [ ] **UI-01**: Autopilot provides composable agents/skills/commands: `autopilot:pull`, `autopilot:plan`, `autopilot:execute-plan`, `autopilot:review`, `autopilot:pr`
+- [ ] **UI-02**: Autopilot provides unified `autopilot:launch` command that runs full workflow (pull → plan → execute-plan → review → pr)
+- [ ] **UI-03**: Autopilot supports phase-by-phase execution for L3 tasks via agent parameters
+- [ ] **UI-04**: Autopilot supports flexible execution modes (dry-run, stop-after checkpoint, PR-only mode)
 
 ### Safety & Core Validation
 
@@ -104,10 +104,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STATE-01 | Phase 1 | Pending |
 | STATE-02 | Phase 3 | Pending |
 | STATE-03 | Phase 2 | Pending |
-| CLI-01 | Phase 3 | Pending |
-| CLI-02 | Phase 3 | Pending |
-| CLI-03 | Phase 3 | Pending |
-| CLI-04 | Phase 3 | Pending |
+| UI-01 | Phase 3 | Pending |
+| UI-02 | Phase 3 | Pending |
+| UI-03 | Phase 3 | Pending |
+| UI-04 | Phase 3 | Pending |
 | SAFETY-01 | Phase 1 | Pending |
 | SAFETY-02 | Phase 2 | Pending |
 | SAFETY-03 | Phase 1 | Pending |

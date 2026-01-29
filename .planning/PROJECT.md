@@ -2,9 +2,9 @@
 
 ## What This Is
 
-Autopilot is an AI companion system (agents, commands, skills, plugins) for Cursor/Claude that automates repetitive Analytics Engineering tasks. It takes JIRA tickets, executes the work end-to-end (dbt model changes, tests, docs), and opens PR-ready changes — eliminating manual drudgery for Analytics Engineer teams working on large dbt codebases (~2k Bronze, ~1k Silver, ~500 Gold tables).
+Autopilot is an AI companion system of agents, skills, and commands for Cursor/Claude/OpenCode that automates repetitive Analytics Engineering tasks. It takes JIRA tickets (or direct user input), executes the work end-to-end (dbt model changes, tests, docs), and opens PR-ready changes — eliminating manual drudgery for Analytics Engineer teams working on large dbt codebases (~2k Bronze, ~1k Silver, ~500 Gold tables).
 
-Users install it locally in their notebook, run commands in Cursor IDE or OpenCode, and Autopilot handles the task execution with full safety guardrails.
+Users install it as a local Git repository, configure it in Cursor/OpenCode settings, and invoke agents/skills to handle task execution with full safety guardrails and resumability.
 
 ## Core Value
 
@@ -101,11 +101,12 @@ Reliably automate Analytics Engineering tasks end-to-end, from JIRA task intake 
 
 ## Constraints
 
-- **Language**: Works within Cursor/Claude context window limits; must support session persistence for large tasks
-- **Offline-first**: No external API dependencies except configured JIRA/Git/dbt (provided outside Autopilot)
-- **Distribution**: Local Git repository; users clone and install; no package manager dependency
+- **Agent model**: Agents/skills live in Cursor/Claude/OpenCode context; work within token window limits
+- **Session persistence**: Large tasks split across multiple agent invocations; state stored locally in .autopilot/
+- **Offline-first**: No external API dependencies except configured JIRA/Git/dbt (provided outside Autopilot via MCP or CLI flags)
+- **Distribution**: Local Git repository; users clone into ~/.cursor/agents or ~/.opencode/agents (agent-specific paths)
 - **Git safety**: No force-push, no history rewriting, no `git add .`; explicit staging only
-- **dbt environment**: Assumes dbt project with profiles.yml, project.yml; user provides path on first run
+- **dbt environment**: Assumes dbt project with profiles.yml, project.yml; user provides path in Autopilot config
 - **Team size**: v1 targets up to 18–24 concurrent users (3 squads); no enterprise sync needed yet
 
 ## Key Decisions
@@ -117,8 +118,9 @@ Reliably automate Analytics Engineering tasks end-to-end, from JIRA task intake 
 | Silver layer risk escalation | Silver models contain business logic; errors propagate; explicit risk assessment needed | — Pending |
 | PR is primary artifact, not plans | PRs are where code review happens; plans are internal; PRs must contain all context | — Pending |
 | No auto-merge, no silent execution | Team trust requires human approval; Autopilot stops at PR, not publish | — Pending |
-| CLI commands, not web UI | Integrates with existing dev workflow (Cursor IDE); CLI is modal-agnostic | — Pending |
+| Agent/skill model, not web UI | Integrates directly into Cursor/Claude/OpenCode workflow; users invoke like `/autopilot:launch` | — Pending |
 | Local distribution, not SaaS | Keeps data local, respects team autonomy, no infrastructure overhead | — Pending |
+| Agent-based execution | Agents run in user's local environment with full Git/dbt access; token-constrained but reliable | — Pending |
 
 ---
 
