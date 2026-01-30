@@ -1,176 +1,159 @@
 ---
-description: "Execute work plan with phase support"
-model: claude-opus-4-5
+description: "Execute dbt/SQL changes based on plan. Triggers: /execute-plan, /execute, 'implement changes', 'do work'"
+model: claude-3-5-sonnet
 tools: ["Read", "Write", "Bash"]
 ---
 
-# Autopilot Execute Plan - Work Execution
+# Autopilot Execute-Plan - Work Execution
 
 ## Purpose
 
-Execute the work plan, supporting single-phase (L0-L1) and multi-phase (L2+) execution with checkpoints.
+Execute dbt model changes, tests, and documentation according to the generated plan.
 
 **Stage:** execute-plan
-**Input:** Existing state from plan stage, classification, and plan details
-**Output:** Commits created, tests added, state updated with completion
+**Input:** Plan from plan stage or inline instructions for L0/L1
+**Output:** Commits made, dbt validation passed, state updated
 
-## Status
+## Execution Flow
 
-**Phase 3 - Execution & Validation (Planned)**
+### 1. Load State & Plan
 
-This skill will be implemented in Phase 3 to handle:
-- dbt model changes (creation, modification, SQL refactors)
-- Test creation (schema, data, freshness)
-- Documentation updates
-- dbt build validation
-- Atomic commits with explicit staging
-- Multi-phase execution with checkpoints
-- Safe error handling and recovery
-
-## Core Responsibilities
-
-### Phase Execution
-
-- Load plan from state
-- Execute each phase in order
-- After each phase: commit changes, run validation
-- Request confirmation at checkpoints (soft stops)
-- Skip already-completed phases on resume
-
-### Work Execution
-
-- Implement JIRA task requirements
-- Follow team SQL style guide
-- Create comprehensive tests
-- Update dbt documentation
-- Validate with `dbt build`
-
-### Commit Management
-
-- Stage files explicitly (no `git add .`)
-- Create atomic commits with clear messages
-- Track commits in state for resumability
-- Never squash or rewrite history
-
-### Validation
-
-- Run `dbt build` after each phase
-- Check SQL formatting/linting
-- Verify tests pass
-- Detect downstream impacts
-
-## Planned Implementation Order
-
-### Single Phase Execution (L0/L1)
-
-1. Load state and classification
-2. Verify prerequisites met
-3. Execute inline plan
-4. Create files/changes
-5. Commit changes
-6. Run `dbt build`
-7. Update state with completion
-
-### Multi-Phase Execution (L2/L3)
-
-1. Load state and structured plan
-2. For each phase:
-   a. Execute phase tasks
-   b. Commit changes
-   c. Run `dbt build` for affected models
-   d. Update state with phase completion
-   e. Soft stop for confirmation if not final phase
-3. After final phase: continue to review
-
-## Key Patterns
-
-### dbt SQL Changes
+Verify that the plan stage was completed successfully:
 
 ```bash
-# Modify model SQL
-# Update schema.yml with new columns/tests
-# Commit changes atomically
-git add models/silver/orders.sql models/silver/schema.yml
-git commit -m "Add freshness test to silver.orders"
+if [ ! -f ".autopilot/state.json" ]; then
+  echo "❌ ERROR: No state file found. Run autopilot:pull first."
+  exit 1
+fi
+
+STAGE=$(jq -r '.stage' .autopilot/state.json)
+if [ "$STAGE" != "plan" ] && [ "$STAGE" != "execute-plan" ]; then
+  echo "❌ ERROR: Previous stage not completed (current stage: $STAGE). Expected 'plan' or 'execute-plan'."
+  exit 1
+fi
+
+CLASSIFICATION=$(jq -r '.classification' .autopilot/state.json)
+echo "Classification: $CLASSIFICATION"
 ```
 
-### Test Creation
+### 2. Determine Next Phase
+
+If a structured plan exists, find the next incomplete phase:
 
 ```bash
-# Add tests to schema.yml
-# Common test patterns:
-#  - not_null
-#  - unique
-#  - relationships
-#  - freshness
-#  - custom tests
+HAS_PLAN=$(jq -r '.plan.exists // false' .autopilot/state.json)
+if [ "$HAS_PLAN" = "true" ]; then
+  # Find first phase in .plan.phases not in .plan.completed_phases
+  NEXT_PHASE=$(jq -r '(.plan.phases - .plan.completed_phases)[0]' .autopilot/state.json)
+  if [ "$NEXT_PHASE" = "null" ]; then
+    echo "✅ All planned phases complete."
+    exit 0
+  fi
+  echo "Starting Phase: $NEXT_PHASE"
+else
+  echo "Executing L0/L1 inline task."
+fi
 ```
 
-### Validation
+### 3. Execute Changes
+
+This is where the agent performs the actual work.
+**General Rules:**
+- Follow existing SQL patterns in the repo.
+- Follow dbt best practices.
+- Ask user before creating new tests or documentation if not explicitly requested.
+
+### 4. Validate Changes (dbt build)
+
+After making changes, validate with dbt:
 
 ```bash
-# After changes
-dbt build --select affected_model+
-dbt test --select affected_model+
-dbt docs generate
+echo "Validating changes with dbt..."
+# Target the affected models and their immediate downstreams
+AFFECTED_MODELS=$(jq -r '.signals.affected_models | join(" ")' .autopilot/classification.json)
+dbt build --select $AFFECTED_MODELS
+
+if [ $? -ne 0 ]; then
+  echo "❌ ERROR: dbt build failed."
+  # State persistence for failure is handled by autopilot-core.mdc
+  exit 1
+fi
+echo "✅ dbt build passed."
 ```
 
-## Error Handling
+### 5. Create Atomic Commits
 
-### Hard Stops
-
-- dbt build failure (outside expected scope)
-- SQL linting failure
-- Test failure (logic error)
-- Rollback needed
-
-### Soft Stops
-
-- Multi-phase checkpoint
-- Ambiguous business logic
-- Manual intervention required
-- Confirmation needed
-
-## Output Format
-
-After execution, state includes:
-
-```json
-{
-  "stage": "execute-plan",
-  "plan": {
-    "completed_phases": ["phase_1", "phase_2"],
-    "current_phase": "phase_3"
-  },
-  "commits": [
-    {
-      "sha": "a1b2c3d",
-      "message": "Add freshness test to silver.orders",
-      "stage": "execute-plan",
-      "timestamp": "2026-01-29T10:45:00Z"
-    }
-  ]
-}
-```
-
-## Next Steps After Execution
-
-After execute-plan completes:
+Create a commit for the completed work/phase:
 
 ```bash
-autopilot review        # Validate before PR
-autopilot pr            # Create pull request
+# SAFETY: Never use 'git add .'
+# Stage only the files we intended to change
+STAGED_FILES=$(git diff --name-only)
+if [ -z "$STAGED_FILES" ]; then
+  echo "⚠️ No changes to commit."
+else
+  # Use deterministic commit message format
+  TASK_ID=$(jq -r '.task_id' .autopilot/state.json)
+  COMMIT_MSG="Feat - $TASK_ID – Executa alterações da fase $NEXT_PHASE"
+  
+  for file in $STAGED_FILES; do
+    git add "$file"
+  done
+  
+  git commit -m "$COMMIT_MSG"
+  
+  COMMIT_SHA=$(git rev-parse --short HEAD)
+  echo "✅ Committed: $COMMIT_SHA"
+fi
 ```
 
-## References
+### 6. Update State
 
-- Core behavior: `.cursor/rules/autopilot-core.mdc`
-- Git operations: `shared/prompts/git-operations.md`
-- dbt patterns: `docs/02_autopilot_commands.md`
+Record progress in the state file:
+
+```bash
+# Update completed_phases and stage
+if [ "$HAS_PLAN" = "true" ]; then
+  jq --arg phase "$NEXT_PHASE" \
+     '.plan.completed_phases += [$phase] | .stage = "execute-plan"' \
+     .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
+else
+  jq '.stage = "execute-plan"' .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
+fi
+
+# Record commit
+jq --arg sha "$COMMIT_SHA" \
+   --arg msg "$COMMIT_MSG" \
+   --arg now "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+   '.commits += [{"sha": $sha, "message": $msg, "stage": "execute-plan", "timestamp": $now}]' \
+   .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
+```
+
+### 7. Report Progress
+
+```bash
+echo ""
+echo "✅ Execution update"
+if [ "$HAS_PLAN" = "true" ]; then
+  echo "   Phase complete: $NEXT_PHASE"
+else
+  echo "   Task execution complete."
+fi
+echo "   Commit: $COMMIT_SHA"
+echo ""
+echo "Next step: autopilot:execute-plan (for next phase) or autopilot:review"
+echo ""
+```
+
+## Safety Rules Applied
+
+✅ No `git add .` (GIT-02)
+✅ Atomic commits (EXEC-04)
+✅ Phase-based execution (EXEC-05)
+✅ dbt validation (EXEC-06)
+✅ State persistence (STATE-03)
 
 ## See Also
 
-- [Cursor skill](./autopilot-execute-plan.md) (this file)
-- [OpenCode command](../../.opencode/command/autopilot-execute-plan.md)
-- `.cursor/rules/git-safety.mdc` - Git safety enforcement
-- `docs/03_failures_git_state.md` - Error handling and recovery
+- `docs/03_failures_git_state.md` - Failure modes and recovery
+- `shared/schemas/state-schema.json` - State file format

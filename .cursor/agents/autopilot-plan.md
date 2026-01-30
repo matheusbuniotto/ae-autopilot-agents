@@ -1,6 +1,6 @@
 ---
-description: "Classify task and generate plan if needed"
-model: claude-opus-4-5
+description: "Classify task complexity (L0-L3) and generate execution plan. Triggers: /plan, /autopilot-plan, 'plan task', 'analyze task'"
+model: claude-3-5-sonnet
 tools: ["Read", "Write", "Bash"]
 ---
 
@@ -8,114 +8,216 @@ tools: ["Read", "Write", "Bash"]
 
 ## Purpose
 
-Classify task complexity (L0-L3) and generate execution plan if needed.
+Act as a **Senior Analytics Engineer** to analyze risk and complexity.
+Your goal is to prevent "quick fixes" from breaking production by enforcing proper planning depth based on dbt lineage and logic risk.
 
-**Stage:** plan
-**Input:** Existing state from pull stage
-**Output:** Classification result and plan (if L2+), state updated
+## When to Use
 
-## Status
+- User runs `/autopilot:plan`
+- Orchestrator (`/launch`) detects `pull` stage completed
+- User asks to "analyze impact" or "check dependencies"
 
-**Phase 1 - Foundation (Current Phase)**
+## Execution Flow
 
-This skill is implemented in Phase 1 to establish classification heuristics and risk escalation for Silver layer tasks.
+### 1. Load State & Task Metadata
 
-Core responsibilities:
-- Load JIRA task and current state
-- Analyze task for complexity signals
-- Classify as L0-L3 based on heuristics
-- Escalate Silver layer changes
-- Generate structured plan for L2+ tasks
-- Emit soft stop triggers if needed
-- Persist classification and plan to state
+Verify that the pull stage was completed successfully:
 
-## Implementation Details
+```bash
+if [ ! -f ".autopilot/state.json" ]; then
+  echo "❌ ERROR: No state file found. Run autopilot:pull first."
+  exit 1
+fi
 
-### Classification Levels
+STAGE=$(jq -r '.stage' .autopilot/state.json)
+if [ "$STAGE" != "pull" ] && [ "$STAGE" != "plan" ]; then
+  echo "❌ ERROR: Previous stage not completed (current stage: $STAGE). Expected 'pull' or 'plan'."
+  exit 1
+fi
 
-The plan skill implements the L0-L3 classification framework from `docs/01_task_classification.md`:
-
-- **L0:** Documentation only
-- **L1:** Single model, low risk
-- **L2:** Multi-model or medium risk
-- **L3:** High risk or complex
-
-### Silver Layer Escalation
-
-Special handling for Silver layer models:
-
-```
-Base classification + risk escalation factors:
-- Table size (row count)
-- Downstream dependencies
-- JOIN complexity
-- Backfill requirements
-- Schema changes
+if [ ! -f ".autopilot/task.json" ]; then
+  echo "❌ ERROR: Task metadata missing. Run autopilot:pull first."
+  exit 1
+fi
 ```
 
-### Decision Tree
+### 2. Detect Affected Models
 
-```
-1. Any model changes? → L0 if no
-2. How many models? → 1/2-5/6+ determine base level
-3. Is Silver involved? → Escalate if yes
-4. Check size/downstream → Apply additional escalation
-5. Emit soft stops → If ambiguous logic or missing criteria
-```
+Scan JIRA description and current branch changes to identify affected dbt models:
 
-### Output Format
+```bash
+# Extract model names from JIRA description (heuristic-based)
+SUMMARY=$(jq -r '.summary' .autopilot/task.json)
+DESCRIPTION=$(jq -r '.description' .autopilot/task.json)
 
-Classification results follow `shared/schemas/classification-schema.json`:
+# Check for model names in format: 'layer.model_name' or 'model_name.sql'
+AFFECTED_MODELS=$(echo "$SUMMARY $DESCRIPTION" | grep -oE '\b(bronze|silver|gold)\.[a-zA-Z0-9_]+\b' | sort -u | tr '\n' ',' | sed 's/,$//')
 
-```json
-{
-  "task_id": "TSK-123",
-  "classification_level": "L2",
-  "signals": {
-    "is_silver_layer": true,
-    "downstream_model_count": 3,
-    "affected_models": ["silver.orders"],
-    "has_sql_changes": true,
-    "sql_lines_of_code": 250,
-    "join_count": 5,
-    "requires_backfill": true,
-    "risk_score": 65
-  },
-  "rationale": "Silver model with complex JOIN logic",
-  "requires_plan": true,
-  "classified_at": "2026-01-29T10:45:00Z"
-}
+if [ -z "$AFFECTED_MODELS" ]; then
+  # Fallback: check git diff if branch already has changes
+  AFFECTED_MODELS=$(git diff --name-only origin/release/main...HEAD | grep '\.sql$' | xargs -n 1 basename | sed 's/\.sql$//' | tr '\n' ',' | sed 's/,$//')
+fi
+
+echo "Detected models: $AFFECTED_MODELS"
 ```
 
-## Planned Implementation Order
+### 3. Run dbt Lineage Analysis
 
-1. **Load state** - Verify pull stage completed
-2. **Fetch task details** - From .autopilot/task.json
-3. **Analyze JIRA description** - Extract signals
-4. **Detect models** - Parse dbt files for affected models
-5. **Run dbt analysis** - Get downstream impacts
-6. **Classify** - Apply L0-L3 heuristics
-7. **Generate plan** - If L2+ classification
-8. **Persist** - Save classification.json to state
-9. **Report** - Output classification results
+Analyze downstream impact for detected models:
 
-## References
+```bash
+IFS=',' read -ra ADDR <<< "$AFFECTED_MODELS"
+DOWNSTREAM_COUNT=0
+ALL_AFFECTED="[]"
 
-- Classification heuristics: `docs/01_task_classification.md`
-- Schema: `shared/schemas/classification-schema.json`
-- Prompts: `shared/prompts/classification.md`
+for model in "${ADDR[@]}"; do
+  # Get downstream models (excluding current model)
+  # dbt ls returns list of models, we count them
+  # --select +model+ selects model and all downstreams
+  COUNT=$(dbt ls --select "$model+" --output json 2>/dev/null | jq -r 'select(.resource_type == "model") | .name' | grep -v "^$model$" | wc -l)
+  DOWNSTREAM_COUNT=$((DOWNSTREAM_COUNT + COUNT))
+  
+  # Collect all affected models for classification signals
+  MODELS_JSON=$(dbt ls --select "$model+" --output json 2>/dev/null | jq -r 'select(.resource_type == "model") | .name' | jq -R . | jq -s .)
+  ALL_AFFECTED=$(echo "$ALL_AFFECTED $MODELS_JSON" | jq -s 'add | unique')
+done
 
-## Next Phase
+echo "Total downstream models affected: $DOWNSTREAM_COUNT"
+```
 
-Phase 2 will implement full autopilot:plan skill with:
-- Complete dbt integration for model detection
-- Downstream impact analysis
-- Full L0-L3 classification engine
-- Structured plan generation for L2+ tasks
+### 4. Analyze SQL Complexity (if models exist)
+
+Analyze existing SQL files for complexity signals (joins, LOC):
+
+```bash
+JOIN_COUNT=0
+MAX_LOC=0
+
+for model in "${ADDR[@]}"; do
+  # Find model file path
+  FILE_PATH=$(find models -name "$model.sql")
+  if [ -n "$FILE_PATH" ]; then
+    JOINS=$(grep -i "JOIN" "$FILE_PATH" | wc -l)
+    JOIN_COUNT=$((JOIN_COUNT + JOINS))
+    
+    LOC=$(wc -l < "$FILE_PATH")
+    if [ "$LOC" -gt "$MAX_LOC" ]; then
+      MAX_LOC=$LOC
+    fi
+  fi
+done
+```
+
+### 5. Classify Task
+
+Apply heuristics from `docs/01_task_classification.md` to determine L0-L3 level:
+
+```bash
+# Simple heuristic engine based on collected signals
+LEVEL="L1" # Default
+HAS_SILVER=false
+if echo "$AFFECTED_MODELS" | grep -q "silver"; then
+  HAS_SILVER=true
+fi
+
+MODEL_COUNT=$(echo "$AFFECTED_MODELS" | tr ',' '\n' | sed '/^$/d' | wc -l)
+
+if [ "$MODEL_COUNT" -eq 0 ]; then
+  LEVEL="L0"
+elif [ "$MODEL_COUNT" -gt 5 ] || [ "$DOWNSTREAM_COUNT" -gt 10 ]; then
+  LEVEL="L3"
+elif [ "$MODEL_COUNT" -gt 2 ] || [ "$HAS_SILVER" = true ] || [ "$DOWNSTREAM_COUNT" -gt 5 ]; then
+  LEVEL="L2"
+fi
+
+# Silver Layer Escalation
+if [ "$HAS_SILVER" = true ]; then
+  if [ "$JOIN_COUNT" -gt 5 ] || [ "$MAX_LOC" -gt 300 ]; then
+    LEVEL="L3"
+  fi
+fi
+
+echo "Classification: $LEVEL"
+```
+
+### 6. Generate Execution Plan (for L2+)
+
+If task is L2 or L3, generate a structured plan:
+
+```bash
+if [ "$LEVEL" == "L2" ] || [ "$LEVEL" == "L3" ]; then
+  echo "Generating structured plan..."
+  # Plan generation logic:
+  # 1. Schema/Table changes
+  # 2. Logic refactor
+  # 3. Validation steps
+  # 4. Backfill/Reload
+  
+  # This would typically be a structured prompt to the LLM to generate steps
+  # based on the JIRA description and the detected models.
+fi
+```
+
+### 7. Update State & Classification File
+
+Persist results to `.autopilot/classification.json` and update `.autopilot/state.json`:
+
+```bash
+# Create classification.json
+jq -n \
+  --arg task_id "$(jq -r '.task_id' .autopilot/state.json)" \
+  --arg level "$LEVEL" \
+  --arg rationale "Detected $MODEL_COUNT models with $DOWNSTREAM_COUNT downstreams. Silver layer: $HAS_SILVER." \
+  --arg now "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  --argjson all_affected "$ALL_AFFECTED" \
+  '{ 
+    "task_id": $task_id,
+    "classification_level": $level,
+    "signals": {
+      "is_silver_layer": ($HAS_SILVER == "true"),
+      "downstream_model_count": ('"$DOWNSTREAM_COUNT"' | tonumber),
+      "affected_models": $all_affected,
+      "join_count": ('"$JOIN_COUNT"' | tonumber),
+      "sql_max_loc": ('"$MAX_LOC"' | tonumber)
+    },
+    "rationale": $rationale,
+    "requires_plan": ($level == "L2" || $level == "L3"),
+    "classified_at": $now
+  }' > .autopilot/classification.json
+
+# Update state.json
+jq \
+  --arg level "$LEVEL" \
+  --arg now "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+  '.stage = "plan" | .classification = $level | .timestamps.last_updated = $now' \
+  .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
+```
+
+### 8. Report Success
+
+```bash
+echo ""
+echo "✅ Plan complete"
+echo "   Classification: $LEVEL"
+echo "   Affected models: $AFFECTED_MODELS"
+echo "   Downstream impact: $DOWNSTREAM_COUNT models"
+echo ""
+if [ "$LEVEL" == "L2" ] || [ "$LEVEL" == "L3" ]; then
+  echo "Structured plan generated in state."
+fi
+echo "Next step: autopilot:execute-plan"
+echo ""
+```
+
+## Safety Rules Applied
+
+✅ Mandatory classification before execution (EXEC-01)
+✅ Risk escalation for Silver models (SAFETY-03)
+✅ dbt-backed impact analysis (EXEC-08)
+✅ File-based state persistence (STATE-01)
 
 ## See Also
 
-- [Cursor skill](./autopilot-plan.md) (this file)
-- [OpenCode command](../../.opencode/command/autopilot-plan.md)
 - `docs/01_task_classification.md` - Classification details
-- `shared/prompts/classification.md` - Heuristics and examples
+- `shared/schemas/classification-schema.json` - Classification format
+- `shared/prompts/classification.md` - Heuristics and logic

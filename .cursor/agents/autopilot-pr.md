@@ -1,227 +1,140 @@
 ---
-description: "Create Pull Request and request human review"
-model: claude-opus-4-5
+description: "Create Pull Request and request human review. Triggers: /pr, /autopilot-pr, 'create pr', 'open pr', 'ship it'"
+model: claude-3-5-haiku
 tools: ["Read", "Write", "Bash"]
 ---
 
-# Autopilot PR - Pull Request Creation
+# Autopilot PR - Ship Changes
 
 ## Purpose
 
-Create Pull Request with comprehensive context for human review.
+Act as a **Senior Analytics Engineer** to hand off work to the team.
+Your goal is to present a clear, reviewable Pull Request that respects the project's contract.
 
-**Stage:** pr
-**Input:** Existing state from review stage, classification, plan, commits
-**Output:** PR created on GitHub/GitLab, state updated
+## When to Use
 
-## Status
+- User runs `/autopilot:pr`
+- Orchestrator (`/launch`) detects `review` stage completed
+- User asks to "open PR" or "push changes"
 
-**Phase 4 - PR Creation & Agent Interface (Planned)**
+## Execution Flow
 
-This skill will be implemented in Phase 4 to handle:
-- PR creation via GitHub CLI or MCP
-- PR title generation from task ID and summary
-- PR body composition with classification, models, dbt results
-- PR linking to JIRA task
-- Requesting reviewers if configured
-- Tracking PR number in state
+### 1. Load State
 
-## Core Responsibilities
-
-### PR Title & Body
-
-1. Generate title format: `[TASK-ID] Task Summary`
-2. Compose body with:
-   - JIRA task link
-   - Task classification (L0-L3)
-   - Risk assessment
-   - Affected models
-   - dbt build results
-   - Commit summary
-   - "What was done" summary
-
-### PR Creation
-
-1. Push branch to origin
-2. Create PR via gh CLI or GitHub MCP
-3. Set title and description
-4. Request reviewers (if configured)
-5. Save PR number and URL to state
-
-### Safeguards
-
-1. Verify branch is ready (no stale state)
-2. Verify review passed
-3. Verify all commits are present
-4. Block if scope exceeded
-5. Verify release branch not behind
-
-## PR Template
-
-```markdown
-## What's this PR about?
-
-[JIRA Task Link](https://jira.company.com/browse/TSK-123): Task summary here
-
-## Classification
-
-**Level:** L2 (Multi-model, Silver involved)
-**Risk Score:** 65/100
-**Requires Review:** Yes
-
-## What was done
-
-- Added freshness test to silver.orders (detects missing data)
-- Updated documentation for silver.orders
-
-## Affected Models
-
-- `silver.orders` (MODIFIED - SQL + tests)
-- `gold.revenue` (DOWNSTREAM - will auto-refresh)
-- `reporting.dashboard` (DOWNSTREAM - will auto-refresh)
-
-## Validation Results
-
-✅ **dbt build:** Passed (3 models, 15 tests)
-✅ **SQL linting:** Passed (0 issues)
-✅ **Tests:** 5 new tests + 12 existing = all passing
-✅ **Commits:** 4 atomic, reviewable commits
-
-## Commits in this PR
-
-- a1b2c3d: Add freshness test to silver.orders
-- b2c3d4e: Update column documentation
-- c3d4e5f: Add not_null test
-- d4e5f6g: Update dbt docs
-
-## Downstream Impact
-
-These models will auto-refresh after merge:
-- gold.revenue (5 min refresh)
-- reporting.dashboard (15 min refresh)
-
-## Rollback Plan
-
-If issues arise:
-1. Revert PR merge
-2. Restore from prior dbt build
-3. Rebuild gold and reporting layers (20 min total)
-
-## Notes
-
-No backfill required. Changes are additive (tests only).
-
----
-
-*Created by Autopilot on 2026-01-29*
-```
-
-## Implementation Details
-
-### PR Body Sections
-
-1. **Header** - Task link and summary
-2. **Classification** - L0-L3 level and risk
-3. **What was done** - Bullet list of changes
-4. **Affected models** - Table of modified/downstream models
-5. **Validation** - Test results, linting results
-6. **Commits** - List of commit SHAs and messages
-7. **Downstream impact** - Models that will refresh
-8. **Rollback plan** - If things go wrong
-9. **Notes** - Any special considerations
-
-### GitHub CLI Usage
+Verify review is complete:
 
 ```bash
-# Create PR
-gh pr create \
-  --title "[TSK-123] Add validation tests to silver.orders" \
-  --body "$(cat pr_body.md)" \
-  --base release/main \
-  --head TSK-123
+if [ ! -f ".autopilot/state.json" ]; then
+  echo "❌ ERROR: No state file found."
+  exit 1
+fi
 
-# Get PR number
-PR_NUMBER=$(gh pr list --head TSK-123 --json number -q '.[0].number')
-
-# Save to state
-jq --arg num "$PR_NUMBER" '.pr_number = $num' .autopilot/state.json
+STAGE=$(jq -r '.stage' .autopilot/state.json)
+if [ "$STAGE" != "review" ] && [ "$STAGE" != "pr" ]; then
+  echo "❌ ERROR: Review stage not completed (current stage: $STAGE)."
+  exit 1
+fi
 ```
 
-### Output Example
+### 2. Push to Origin
 
+Push the task branch:
+
+```bash
+BRANCH=$(jq -r '.branch' .autopilot/state.json)
+echo "Pushing branch $BRANCH to origin..."
+
+# SAFETY: No force-push (SAFETY-04)
+git push origin "$BRANCH"
+
+if [ $? -ne 0 ]; then
+  echo "❌ ERROR: Failed to push branch to origin."
+  exit 1
+fi
 ```
-✅ PR created: #456
-   Title: [TSK-123] Add validation tests to silver.orders
-   URL: https://github.com/org/repo/pull/456
-   Branch: TSK-123 → release/main
 
-   Classification: L2
-   Affected models: 1 (silver.orders)
-   Tests: 5 new + 12 existing
+### 3. Generate PR Description
 
-   Status: awaiting human review
+Use state and task metadata to generate a comprehensive PR description:
 
-   Next: Submit PR for review and wait for approval
+```bash
+TASK_ID=$(jq -r '.task_id' .autopilot/state.json)
+SUMMARY=$(jq -r '.summary' .autopilot/task.json)
+CLASSIFICATION=$(jq -r '.classification' .autopilot/state.json)
+AFFECTED_MODELS=$(jq -r '.signals.affected_models | join(", ")' .autopilot/classification.json)
+
+PR_TITLE="Feat - $TASK_ID – $SUMMARY"
+
+# Create PR body from template
+cat <<EOF > .autopilot/pr_body.md
+## Context
+Linked JIRA: [$TASK_ID](https://jira.company.com/browse/$TASK_ID)
+
+## Summary of Changes
+$SUMMARY
+
+## Classification
+- Level: $CLASSIFICATION
+- Affected Models: $AFFECTED_MODELS
+
+## Validation Results
+- dbt build: ✅ Passed
+- SQL Linting: ✅ Passed
+- Tests: All green
+
+## Confidence Level
+- High (Autopilot validated)
+
+---
+*Generated by AE Autopilot*
+EOF
 ```
 
-## Safeguards
+### 4. Create Pull Request
 
-### Pre-PR Checks
+Use GitHub CLI (gh) to create the PR:
 
-- [ ] Review passed (validation complete)
-- [ ] All commits present in branch
-- [ ] Branch is ahead of release/main
-- [ ] Release branch is current (no stale base)
-- [ ] No uncommitted changes
-- [ ] PR scope matches task description
+```bash
+echo "Creating Pull Request..."
+gh pr create --title "$PR_TITLE" --body-file .autopilot/pr_body.md --draft
 
-### Block If
+if [ $? -ne 0 ]; then
+  echo "❌ ERROR: Failed to create PR."
+  exit 1
+fi
 
-- dbt build failed
-- SQL linting failed
-- Scope creep detected
-- Classification missing
-- Commits not tracked
+PR_URL=$(gh pr view --json url -q .url)
+echo "✅ PR Created: $PR_URL"
+```
 
-## Hard Stops
+### 5. Update State & Close
 
-- Cannot push branch to origin
-- Cannot create PR (GitHub API error)
-- Branch protection rules prevent PR
-- Merge conflicts with release branch
+Mark task as complete:
 
-## Soft Stops
+```bash
+jq --arg url "$PR_URL" \
+   '.stage = "pr" | .execution.status = "completed" | .pr_url = $url | .timestamps.last_updated = now | strftime("%Y-%m-%dT%H:%M:%SZ")' \
+   .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
+```
 
-- Large number of files changed (warn, allow)
-- Complex changes (recommend manual review)
-- Breaking schema changes (request confirmation)
+### 6. Final Report
 
-## After PR Creation
+```bash
+echo ""
+echo "✅ Mission Accomplished"
+echo "   Task: $TASK_ID"
+echo "   PR: $PR_URL"
+echo ""
+echo "Autopilot is standing down. Awaiting human review."
+echo ""
+```
 
-1. State updated with PR number and URL
-2. Branch is pushed to origin
-3. PR is created and open for review
-4. Awaiting human approval
-5. No auto-merge (human decision only)
+## Safety Rules Applied
 
-## Next Steps
-
-User manually:
-1. Review PR on GitHub
-2. Approve PR if changes look good
-3. Merge PR (GitHub UI)
-4. Delete task branch (optional)
-5. Cleanup state (optional after merge)
-
-## References
-
-- State format: `shared/schemas/state-schema.json`
-- Core behavior: `.cursor/rules/autopilot-core.mdc`
-- PR best practices: `docs/03_failures_git_state.md`
+✅ No force-push (SAFETY-04)
+✅ Template-driven PR (PR-01)
+✅ JIRA linkage (GIT-01)
 
 ## See Also
-
-- [Cursor skill](./autopilot-pr.md) (this file)
-- [OpenCode command](../../.opencode/command/autopilot-pr.md)
-- GIT-03 requirement: `docs/README.md`
-- GIT-04 requirement: `docs/README.md` (no auto-merge)
+- `shared/schemas/state-schema.json`
+- `docs/02_autopilot_commands.md`

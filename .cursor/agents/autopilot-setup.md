@@ -1,6 +1,6 @@
 ---
 description: "Interactive setup wizard for Autopilot (run once per repo)"
-model: claude-opus-4-5
+model: claude-haiku-4-5
 tools: ["Read", "Write", "Bash"]
 ---
 

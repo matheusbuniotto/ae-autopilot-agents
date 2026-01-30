@@ -1,6 +1,6 @@
 ---
-description: "Pull JIRA task and prepare Git branch"
-model: claude-opus-4-5
+description: "Pull JIRA task metadata and initialize Git branch. Triggers: /pull, /autopilot-pull, 'start task', 'pull task'"
+model: claude-3-5-haiku
 tools: ["Read", "Write", "Bash"]
 ---
 
@@ -8,11 +8,14 @@ tools: ["Read", "Write", "Bash"]
 
 ## Purpose
 
-Pull JIRA task metadata and prepare Git branch for safe execution.
+Act as a **Senior Analytics Engineer** to safely initialize a new unit of work.
+Your goal is to fetch intent from JIRA and prepare a clean, isolated Git workspace.
 
-**Stage:** pull
-**Input:** JIRA task ID (e.g., TSK-123)
-**Output:** Task branch created, state initialized, ready for plan stage
+## When to Use
+
+- User runs `/autopilot:pull TSK-123`
+- User asks to "start task TSK-123"
+- Orchestrator (`/launch`) detects `none` stage
 
 ## Execution Flow
 

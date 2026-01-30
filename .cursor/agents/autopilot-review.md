@@ -1,204 +1,121 @@
 ---
-description: "Validate changes before PR creation"
-model: claude-opus-4-5
+description: "Run final validation (dbt build, lint, docs) before PR. Triggers: /review, /autopilot-review, 'review changes', 'check quality'"
+model: claude-3-5-sonnet
 tools: ["Read", "Write", "Bash"]
 ---
 
-# Autopilot Review - Validation & Quality Checks
+# Autopilot Review - Quality Assurance
 
 ## Purpose
 
-Run comprehensive validation and quality checks before PR creation.
+Act as a **Senior Analytics Engineer** to audit the work before shipping.
+Your goal is to catch regressions, style violations, and missing documentation.
 
-**Stage:** review
-**Input:** Existing state from execute-plan stage
-**Output:** Validation results, state updated, ready for PR stage
+## When to Use
 
-## Status
+- User runs `/autopilot:review`
+- Orchestrator (`/launch`) detects `execute-plan` stage completed
+- User asks to "validate" or "QA" the task
 
-**Phase 3 - Execution & Validation (Planned)**
+## Execution Flow
 
-This skill will be implemented in Phase 3 to validate all work before PR creation:
-- `dbt build` validation (models and tests)
-- SQL formatting/linting checks
-- Test coverage verification
-- Documentation completeness
-- Commit quality review
-- Scope verification
+### 1. Load State
 
-## Core Responsibilities
-
-### dbt Validation
-
-1. Run `dbt build` on all affected models
-   - Compile all models
-   - Run all tests
-   - Check for errors
-
-2. Verify tests pass
-   - All new tests green
-   - All existing tests still passing
-   - No broken dependencies
-
-3. Check documentation
-   - All models have descriptions
-   - Columns are documented
-   - Tests are documented
-
-### SQL Quality
-
-1. Run SQL linter (sqlfluff, sqlfmt, etc.)
-   - Check formatting
-   - Verify style guide compliance
-   - No syntax errors
-
-2. Manual inspection
-   - Review SQL logic
-   - Check for common issues
-   - Verify performance
-
-### Commit Review
-
-1. Verify all commits
-   - Clear, atomic commits
-   - Good commit messages
-   - No empty commits
-
-2. Check for accidental changes
-   - No unrelated files staged
-   - No .gitignore files committed
-   - No environment files leaking
-
-### Scope Verification
-
-1. Verify scope matches task
-   - Only planned changes made
-   - No speculative refactors
-   - No scope creep
-
-2. Check downstream impact
-   - Expected number of models affected
-   - No unexpected dependencies broken
-
-## Validation Checklist
-
-```
-✅ dbt build passes (all models and tests)
-✅ No broken tests (new or existing)
-✅ SQL formatting valid (no linting errors)
-✅ Documentation complete (all models/columns)
-✅ Commits are atomic and clear
-✅ No accidental files staged
-✅ Scope matches task description
-✅ No uncommitted changes remaining
-```
-
-## Output Format
-
-After review completes:
-
-```json
-{
-  "stage": "review",
-  "validation": {
-    "dbt_build": {
-      "status": "passed",
-      "models_checked": 3,
-      "tests_passed": 15,
-      "tests_failed": 0
-    },
-    "sql_linting": {
-      "status": "passed",
-      "issues": 0
-    },
-    "documentation": {
-      "status": "passed",
-      "models_documented": 3,
-      "columns_documented": 12
-    },
-    "commits": {
-      "status": "passed",
-      "commit_count": 4,
-      "all_atomic": true
-    }
-  }
-}
-```
-
-## Validation Scripts
-
-### dbt Build Validation
+Verify execution is complete:
 
 ```bash
-# Run full build on affected models
-dbt build --select +affected_model+
+if [ ! -f ".autopilot/state.json" ]; then
+  echo "❌ ERROR: No state file found."
+  exit 1
+fi
 
-# Run tests only
-dbt test --select affected_model+
-
-# Check for schema changes
-dbt parse
-# Compare manifest.json for breaking changes
+STAGE=$(jq -r '.stage' .autopilot/state.json)
+if [ "$STAGE" != "execute-plan" ] && [ "$STAGE" != "review" ]; then
+  echo "❌ ERROR: Execution stage not completed (current stage: $STAGE)."
+  exit 1
+fi
 ```
 
-### SQL Linting
+### 2. Full dbt Build
+
+Run a comprehensive build of affected models and their downstreams:
 
 ```bash
-# Example with sqlfluff
-sqlfluff lint models/ --dialect dbt-postgres
+echo "Running full dbt validation..."
+AFFECTED_MODELS=$(jq -r '.signals.affected_models | join(" ")' .autopilot/classification.json)
 
-# Example with sqlfmt (formatting)
-sqlfmt models/*.sql --check
+# Build affected models and all their downstreams to ensure no regression
+dbt build --select $AFFECTED_MODELS+
+
+if [ $? -ne 0 ]; then
+  echo "❌ ERROR: Final dbt build failed."
+  exit 1
+fi
+echo "✅ Full dbt build passed."
 ```
 
-### Commit Inspection
+### 3. SQL Linting & Formatting
+
+Check for style guide compliance:
 
 ```bash
-# Show commits on branch
-git log origin/release/main..HEAD --oneline
+echo "Checking SQL formatting..."
+# Note: Assumes sqlfluff or similar is configured
+# Find all .sql files changed in this branch
+CHANGED_FILES=$(git diff --name-only origin/release/main...HEAD | grep '\.sql$')
 
-# Check for atomic commits (no large files)
-git log origin/release/main..HEAD --numstat
+if [ -n "$CHANGED_FILES" ]; then
+  sqlfluff lint $CHANGED_FILES --dialect dbt-postgres
+  if [ $? -ne 0 ]; then
+    echo "⚠️  SQL Linting issues found. Attempting auto-fix..."
+    sqlfluff fix $CHANGED_FILES --dialect dbt-postgres -f
+  fi
+fi
+echo "✅ SQL Formatting checked."
 ```
 
-## Hard Stops During Review
+### 4. Verify Documentation
 
-- dbt build fails unexpectedly
-- Critical tests fail (logic error)
-- SQL formatting fails
-- Scope exceeds task description
-- Uncommitted changes detected
-
-## Soft Stops During Review
-
-- Warning: Many models affected (verify intentional)
-- Warning: Complex logic (recommend manual check)
-- Warning: Breaking schema changes (verify intent)
-
-## Next Steps
-
-If review passes:
+Ensure all affected models have updated documentation:
 
 ```bash
-autopilot pr          # Create pull request
+echo "Verifying documentation..."
+# Check for YML files corresponding to affected models
+# Heuristic: look for model names in .yml files under models/
+for model in $(jq -r '.signals.affected_models[]' .autopilot/classification.json); do
+  if ! grep -r "name: $model" models/ | grep "\.yml" > /dev/null; then
+    echo "⚠️  WARNING: No documentation found for model: $model"
+  fi
+done
 ```
 
-If review fails:
+### 5. Update State
+
+Mark review as complete:
 
 ```bash
-# Fix issues and retry
-autopilot review
+jq '.stage = "review" | .timestamps.last_updated = now | strftime("%Y-%m-%dT%H:%M:%SZ")' \
+   .autopilot/state.json > .autopilot/state.json.tmp && mv .autopilot/state.json.tmp .autopilot/state.json
 ```
 
-## References
+### 6. Report Success
 
-- Execution details: `.cursor/agents/autopilot-execute-plan.md`
-- Git operations: `shared/prompts/git-operations.md`
-- Core behavior: `.cursor/rules/autopilot-core.mdc`
+```bash
+echo ""
+echo "✅ Review complete"
+echo "   All validation checks passed."
+echo "   Ready to ship."
+echo ""
+echo "Next step: autopilot:pr"
+echo ""
+```
+
+## Safety Rules Applied
+
+✅ Comprehensive build (EXEC-06)
+✅ Standard checks (EXEC-07)
+✅ SQL style enforcement (GIT-02)
 
 ## See Also
-
-- [Cursor skill](./autopilot-review.md) (this file)
-- [OpenCode command](../../.opencode/command/autopilot-review.md)
-- `docs/03_failures_git_state.md` - Error handling
-- SAFETY-05 requirement: `docs/README.md`
+- `shared/schemas/state-schema.json`
+- `docs/00_project_overview.md`

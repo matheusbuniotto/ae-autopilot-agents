@@ -89,36 +89,42 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXEC-01 | Phase 1 | Pending |
-| EXEC-02 | Phase 1 | Pending |
-| EXEC-03 | Phase 2 | Pending |
-| EXEC-04 | Phase 2 | Pending |
-| EXEC-05 | Phase 2 | Pending |
-| EXEC-06 | Phase 2 | Pending |
-| EXEC-07 | Phase 2 | Pending |
+| EXEC-01 | Phase 2 | Pending |
+| EXEC-02 | Phase 2 | Pending |
+| EXEC-03 | Phase 3 | Pending |
+| EXEC-04 | Phase 3 | Pending |
+| EXEC-05 | Phase 3 | Pending |
+| EXEC-06 | Phase 3 | Pending |
+| EXEC-07 | Phase 3 | Pending |
 | EXEC-08 | Phase 2 | Pending |
 | GIT-01 | Phase 1 | Pending |
-| GIT-02 | Phase 2 | Pending |
-| GIT-03 | Phase 3 | Pending |
-| GIT-04 | Phase 3 | Pending |
+| GIT-02 | Phase 3 | Pending |
+| GIT-03 | Phase 4 | Pending |
+| GIT-04 | Phase 4 | Pending |
 | STATE-01 | Phase 1 | Pending |
-| STATE-02 | Phase 3 | Pending |
-| STATE-03 | Phase 2 | Pending |
-| UI-01 | Phase 3 | Pending |
-| UI-02 | Phase 3 | Pending |
-| UI-03 | Phase 3 | Pending |
-| UI-04 | Phase 3 | Pending |
+| STATE-02 | Phase 4 | Pending |
+| STATE-03 | Phase 3 | Pending |
+| UI-01 | Phase 4 | Pending |
+| UI-02 | Phase 4 | Pending |
+| UI-03 | Phase 4 | Pending |
+| UI-04 | Phase 4 | Pending |
 | SAFETY-01 | Phase 1 | Pending |
-| SAFETY-02 | Phase 2 | Pending |
+| SAFETY-02 | Phase 3 | Pending |
 | SAFETY-03 | Phase 1 | Pending |
 | SAFETY-04 | Phase 1 | Pending |
-| SAFETY-05 | Phase 2 | Pending |
+| SAFETY-05 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 25 ⚠️
+- Mapped to phases: 25/25 ✓
+- Unmapped: 0
+
+**Phase Distribution:**
+- Phase 1 (Foundation & Safety Infrastructure): 5 requirements
+- Phase 2 (Task Intake & Classification): 3 requirements
+- Phase 3 (Execution & Validation): 9 requirements
+- Phase 4 (PR Creation & Agent Interface): 8 requirements
 
 ---
 *Requirements defined: 2026-01-29*
-*Last updated: 2026-01-29 after initial definition*
+*Last updated: 2026-01-29 after roadmap creation*
