@@ -3,13 +3,15 @@
 ## Context
 You are an expert AI Assistant (like Gemini or Cursor's Agent). Your task is to **install** the AE Autopilot system into the user's current workspace. This system is a set of file-based agents, rules, and skills designed to automate Analytics Engineering workflows.
 
-## Prerequisites
-1.  **Git Repository**: The user must be in the root of a git repository (dbt monorepo).
-2.  **Permissions**: You need file write access.
+## Quick Install (Clone)
+If the user wants to install by cloning the source repository directly:
+1.  **Repo Link**: `https://github.com/your-org/ae-autopilot-agents`
+2.  **Instruction**: Clone the repository and copy the `.cursor/`, `.opencode/`, and `shared/` directories into the root of the target project.
 
-## Installation Procedure
+---
 
-Follow these steps precisely. Execute the shell commands and write the files as specified.
+## Manual Installation Procedure
+Follow these steps precisely if you are reconstructing the files from scratch. Execute the shell commands and write the files as specified.
 
 ### Step 0: Configuration & Model Selection
 Ask the user: "Select an installation mode: **System Default**, **Budget**, or **Optimized**?"
