@@ -15,7 +15,15 @@ Autopilot is a multi-platform agent/skill system for [Cursor](https://cursor.com
 
 ### Installation
 
-**Option 1: Clone Repository (Recommended)**
+**Method 1: AI-Native Install (Recommended)** 🤖
+
+Copy and paste this prompt into **Cursor Agent**, **Claude Code**, or **Gemini**:
+
+> "Install AE Autopilot for me using this guide: https://github.com/matheusbuniotto/ae-autopilot-agents/blob/main/AI_INSTALL_GUIDE.md"
+
+The agent will read the guide, ask you one configuration question, and set up everything automatically.
+
+**Method 2: Manual Clone**
 
 Clone this repository and copy the necessary folders into your dbt project root:
 
@@ -28,14 +36,6 @@ cp -r autopilot-source/shared .
 cp -r autopilot-source/docs .
 rm -rf autopilot-source
 ```
-
-**Option 2: AI-Assisted Install**
-
-If you are starting from scratch or want an agent to set it up:
-1. Open [AI_INSTALL_GUIDE.md](AI_INSTALL_GUIDE.md).
-2. Copy the content.
-3. Paste it into Cursor Agent or Gemini.
-4. Follow the prompt to install.
 
 ### Your First Task
 
