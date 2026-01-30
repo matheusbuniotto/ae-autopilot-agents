@@ -152,6 +152,61 @@ These are the core logic files used by both Cursor and OpenCode.
 #### 3.2 Write `.cursor/rules/git-safety.mdc`
 (Copy content from `.cursor/rules/git-safety.mdc`)
 
+#### 3.3 Write `.cursor/rules/autopilot-commands.mdc`
+```markdown
+---
+description: "Register Autopilot commands for Cursor context"
+globs: "**/*"
+---
+
+# Autopilot Commands
+
+This rule registers the Autopilot slash commands for easy access in Cursor.
+
+## Commands
+
+### `/autopilot-pull`
+**Description:** Initialize a new task from JIRA.
+**Action:** Activate `@autopilot-pull` agent.
+**Usage:** `/autopilot-pull TSK-123`
+
+### `/autopilot-plan`
+**Description:** Classify task complexity and generate a plan.
+**Action:** Activate `@autopilot-plan` agent.
+**Usage:** `/autopilot-plan` (after pull)
+
+### `/autopilot-execute`
+**Description:** Execute the code changes based on the plan.
+**Action:** Activate `@autopilot-execute-plan` agent.
+**Usage:** `/autopilot-execute`
+
+### `/autopilot-review`
+**Description:** Run validation (dbt build, lint) before PR.
+**Action:** Activate `@autopilot-review` agent.
+**Usage:** `/autopilot-review`
+
+### `/autopilot-pr`
+**Description:** Create the Pull Request.
+**Action:** Activate `@autopilot-pr` agent.
+**Usage:** `/autopilot-pr`
+
+### `/autopilot-launch`
+**Description:** Orchestrate the full workflow automatically.
+**Action:** Activate `@autopilot-launch` agent.
+**Usage:** `/autopilot-launch TSK-123`
+
+### `/autopilot-setup`
+**Description:** Configure project settings (JIRA, Git).
+**Action:** Activate `@autopilot-setup` agent.
+**Usage:** `/autopilot-setup`
+
+## Context
+When a user types one of these commands, you must:
+1. Identify the matching agent in `.cursor/agents/`.
+2. Activate that agent to handle the request.
+3. Pass any arguments (like Task ID) to the agent.
+```
+
 ### Step 4: Create Skills (Agents) with Model Configuration
 
 #### 4.1 Write `.cursor/agents/autopilot-pull.md`
@@ -230,6 +285,19 @@ tools: ["Read", "Write", "Bash"]
 ---
 
 (Copy content from `.cursor/agents/autopilot-launch.md` body)
+```
+
+#### 4.7 Write `.cursor/agents/autopilot-setup.md`
+*Uses: `{{FAST_MODEL}}`*
+
+```markdown
+---
+description: "Configure Autopilot settings (JIRA, Git, Team). Triggers: /setup, /autopilot-setup, 'configure autopilot'"
+model: {{FAST_MODEL}}
+tools: ["Read", "Write", "Bash"]
+---
+
+(Copy content from `.cursor/agents/autopilot-setup.md` body)
 ```
 
 ### Step 5: Create OpenCode Commands
@@ -324,6 +392,20 @@ arguments: "$TASK_ID"
 
 See Cursor version for full implementation: `.cursor/agents/autopilot-launch.md`
 ```
+
+#### 5.7 Write `.opencode/command/autopilot-setup.md`
+```markdown
+---
+description: "Configure Autopilot settings (JIRA, Git, Team). Triggers: /setup, /autopilot-setup"
+---
+
+# Autopilot Setup (OpenCode)
+
+See Cursor version for full implementation: `.cursor/agents/autopilot-setup.md`
+
+This command checks for `.autopilot/config.json` and helps you create it if missing.
+```
+
 
 ### Step 6: Update .gitignore
 Add the following to `.gitignore`:

@@ -1,0 +1,51 @@
+---
+description: "Register Autopilot commands for Cursor context"
+globs: "**/*"
+---
+
+# Autopilot Commands
+
+This rule registers the Autopilot slash commands for easy access in Cursor.
+
+## Commands
+
+### `/autopilot-pull`
+**Description:** Initialize a new task from JIRA.
+**Action:** Activate `@autopilot-pull` agent.
+**Usage:** `/autopilot-pull TSK-123`
+
+### `/autopilot-plan`
+**Description:** Classify task complexity and generate a plan.
+**Action:** Activate `@autopilot-plan` agent.
+**Usage:** `/autopilot-plan` (after pull)
+
+### `/autopilot-execute`
+**Description:** Execute the code changes based on the plan.
+**Action:** Activate `@autopilot-execute-plan` agent.
+**Usage:** `/autopilot-execute`
+
+### `/autopilot-review`
+**Description:** Run validation (dbt build, lint) before PR.
+**Action:** Activate `@autopilot-review` agent.
+**Usage:** `/autopilot-review`
+
+### `/autopilot-pr`
+**Description:** Create the Pull Request.
+**Action:** Activate `@autopilot-pr` agent.
+**Usage:** `/autopilot-pr`
+
+### `/autopilot-launch`
+**Description:** Orchestrate the full workflow automatically.
+**Action:** Activate `@autopilot-launch` agent.
+**Usage:** `/autopilot-launch TSK-123`
+
+### `/autopilot-setup`
+**Description:** Configure project settings (JIRA, Git).
+**Action:** Activate `@autopilot-setup` agent.
+**Usage:** `/autopilot-setup`
+
+## Context
+When a user types one of these commands, you must:
+1. Identify the matching agent in `.cursor/agents/`.
+2. Activate that agent to handle the request.
+3. Pass any arguments (like Task ID) to the agent.
