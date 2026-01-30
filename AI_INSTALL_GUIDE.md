@@ -343,6 +343,13 @@ ls -la shared/schemas/
 
 You should see 6 agent files and 3 schema files.
 
+### Step 8: Cleanup (Optional)
+If you copied the full repo, you can delete the `docs/` folder as it is not needed for runtime execution. All necessary context is embedded in the agents and `shared/` folder.
+
+```bash
+rm -rf docs/
+```
+
 ## Completion Message
 Once done, tell the user:
 "AE Autopilot v1.0 installed successfully. 🚀
