@@ -76,6 +76,5 @@ Autopilot will attempt to run stages sequentially until it hits a human interven
 - State is persistent across sessions.
 
 ## See Also
-- `docs/00_project_overview.md` - Canonical flow
 - `.cursor/rules/autopilot-core.mdc` - Core behavior
 - `.planning/AGENT_CONTEXT.md` - System anchor

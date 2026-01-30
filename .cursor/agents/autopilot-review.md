@@ -118,4 +118,4 @@ echo ""
 
 ## See Also
 - `shared/schemas/state-schema.json`
-- `docs/00_project_overview.md`
+- `.cursor/rules/autopilot-core.mdc`

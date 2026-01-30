@@ -218,6 +218,5 @@ echo ""
 
 ## See Also
 
-- `docs/01_task_classification.md` - Classification details
-- `shared/schemas/classification-schema.json` - Classification format
 - `shared/prompts/classification.md` - Heuristics and logic
+- `shared/schemas/classification-schema.json` - Classification format

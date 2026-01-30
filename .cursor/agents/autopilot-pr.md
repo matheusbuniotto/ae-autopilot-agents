@@ -137,4 +137,4 @@ echo ""
 
 ## See Also
 - `shared/schemas/state-schema.json`
-- `docs/02_autopilot_commands.md`
+- `.cursor/rules/autopilot-core.mdc`

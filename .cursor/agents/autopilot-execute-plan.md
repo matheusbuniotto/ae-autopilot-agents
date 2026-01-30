@@ -155,5 +155,5 @@ echo ""
 
 ## See Also
 
-- `docs/03_failures_git_state.md` - Failure modes and recovery
+- `.cursor/rules/autopilot-core.mdc` - Core behavior
 - `shared/schemas/state-schema.json` - State file format

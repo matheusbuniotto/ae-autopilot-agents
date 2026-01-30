@@ -314,7 +314,6 @@ echo ""
 
 ## See Also
 
-- `docs/03_failures_git_state.md` - Failure modes and safety rules
 - `.cursor/rules/git-safety.mdc` - Git safety enforcement
 - `shared/schemas/state-schema.json` - State file format
 - `shared/schemas/task-schema.json` - Task metadata format
