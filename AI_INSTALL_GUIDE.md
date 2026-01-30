@@ -5,7 +5,7 @@ You are an expert AI Assistant (like Gemini or Cursor's Agent). Your task is to 
 
 ## Quick Install (Clone)
 If the user wants to install by cloning the source repository directly:
-1.  **Repo Link**: `https://github.com/your-org/ae-autopilot-agents`
+1.  **Repo Link**: `https://github.com/matheusbuniotto/ae-autopilot-agents`
 2.  **Instruction**: Clone the repository and copy the `.cursor/`, `.opencode/`, and `shared/` directories into the root of the target project.
 
 ---
